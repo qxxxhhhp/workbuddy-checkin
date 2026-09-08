@@ -1,0 +1,17 @@
+# 登录态文件，绝不提交
+config.json
+secrets*.txt
+*.info
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
