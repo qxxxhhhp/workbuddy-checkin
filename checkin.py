@@ -221,6 +221,7 @@ def unwrap_data(payload: dict | None) -> dict | None:
 def checkin() -> bool:
     log("=" * 56)
     log("WorkBuddy 每日签到 —— %s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    log("脚本版本：v3 (2026-09-08) —— 触发 07:05/19:05，报警窗口 UTC 22:00-04:00")
     log("=" * 56)
 
     log("步骤 1/3: 加载凭据...")
