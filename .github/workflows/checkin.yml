@@ -1,0 +1,33 @@
+name: WorkBuddy Daily Checkin
+
+on:
+  schedule:
+    # 北京时间 09:05（UTC 01:05），避开整点/整半点以减少排队延迟
+    - cron: "5 1 * * *"
+    # 北京时间 16:05（UTC 08:05），补签机会；已签到会被识别，不会重复领取
+    - cron: "5 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run checkin
+        env:
+          WORKBUDDY_ACCESS_TOKEN: ${{ secrets.WORKBUDDY_ACCESS_TOKEN }}
+          WORKBUDDY_UID: ${{ secrets.WORKBUDDY_UID }}
+          WORKBUDDY_DOMAIN: ${{ secrets.WORKBUDDY_DOMAIN }}
+          WORKBUDDY_ACCOUNT_NAME: ${{ secrets.WORKBUDDY_ACCOUNT_NAME }}
+        run: python checkin.py
