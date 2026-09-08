@@ -301,7 +301,7 @@ def token_expiry_guard(creds: dict) -> None:
       > 14 天    静默
       7~14 天    Actions 页面黄色警告 annotation
       <= 7 天    红色错误 + 让 job 失败，触发 GitHub 邮件通知
-                 （只在上午那次触发，下午那次静默，避免一天两封）
+                 （只在早间那次触发，晚间那次静默，避免一天两封）
 
     注意：本函数在签到完成之后才执行，因此让 job 失败不会影响当天积分。
     """
@@ -321,7 +321,9 @@ def token_expiry_guard(creds: dict) -> None:
         log("[!] " + msg)
         if IS_CI:
             utc_hour = datetime.utcnow().hour
-            if utc_hour < 4:  # 只在上午那次（UTC 01:05）报警
+            # 只在早间那次（UTC 23:05 = 北京 07:05）报警，晚间那次（UTC 11:05 = 北京 19:05）静默，
+            # 避免一天两封邮件。窗口取 22:00 之后或凌晨 4:00 之前，覆盖延迟跨零点的情况。
+            if utc_hour >= 22 or utc_hour < 4:
                 _gh_annotation("error", msg)
                 log("[!] 本次 job 将标记为失败以触发邮件通知，但积分已领取。")
                 sys.exit(1)
