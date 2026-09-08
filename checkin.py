@@ -23,6 +23,11 @@ CHECKIN_PATH = "/v2/billing/meter/daily-checkin"
 REQUEST_TIMEOUT = 20
 MAX_RETRY = 3
 
+# token 到期预警阈值（天）
+WARN_DAYS = 14    # 剩余少于此值：Actions 页面黄色警告
+ALERT_DAYS = 7    # 剩余少于此值：让 job 失败以触发 GitHub 邮件通知
+IS_CI = bool(os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"))
+
 _WIN_AUTH_FILE = (
     Path(os.environ.get("LOCALAPPDATA", ""))
     / "CodeBuddyExtension"
@@ -264,9 +269,81 @@ def checkin() -> bool:
     return True
 
 
+# ---------------------------------------------------------------- token 到期预警
+
+def _decode_token_expiry(token: str):
+    """从 JWT 中解出 exp（UTC 秒）。非 JWT 格式返回 None。"""
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        seg = parts[1]
+        seg += "=" * (-len(seg) % 4)
+        import base64
+
+        payload = json.loads(base64.urlsafe_b64decode(seg))
+        exp = payload.get("exp")
+        return float(exp) if exp else None
+    except Exception:
+        return None
+
+
+def _gh_annotation(level: str, msg: str) -> None:
+    if IS_CI:
+        print("::%s::%s" % (level, msg), flush=True)
+
+
+def token_expiry_guard(creds: dict) -> None:
+    """
+    签到成功之后调用：检查 accessToken 剩余天数。
+
+    分级策略（仅在 CI 环境启用报警）：
+      > 14 天    静默
+      7~14 天    Actions 页面黄色警告 annotation
+      <= 7 天    红色错误 + 让 job 失败，触发 GitHub 邮件通知
+                 （只在上午那次触发，下午那次静默，避免一天两封）
+
+    注意：本函数在签到完成之后才执行，因此让 job 失败不会影响当天积分。
+    """
+    exp = _decode_token_expiry(creds["access_token"])
+    if exp is None:
+        log("（token 非 JWT 格式，跳过到期检查）")
+        return
+
+    days_left = (exp - time.time()) / 86400
+    log("token 剩余有效期：%.1f 天（到期 %s）" % (days_left, time.strftime("%Y-%m-%d", time.localtime(exp))))
+
+    if days_left > WARN_DAYS:
+        return
+
+    if days_left <= ALERT_DAYS:
+        msg = "accessToken 仅剩 %.0f 天到期，请更新 GitHub Secret WORKBUDDY_ACCESS_TOKEN（签到已成功，本次失败仅为提醒）" % days_left
+        log("[!] " + msg)
+        if IS_CI:
+            utc_hour = datetime.utcnow().hour
+            if utc_hour < 4:  # 只在上午那次（UTC 01:05）报警
+                _gh_annotation("error", msg)
+                log("[!] 本次 job 将标记为失败以触发邮件通知，但积分已领取。")
+                sys.exit(1)
+            else:
+                _gh_annotation("warning", msg)
+        return
+
+    msg = "accessToken 将在 %.0f 天后到期，建议尽快更新 GitHub Secret WORKBUDDY_ACCESS_TOKEN" % days_left
+    log("[!] " + msg)
+    _gh_annotation("warning", msg)
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    sys.exit(0 if checkin() else 1)
+    ok = checkin()
+    if ok:
+        # 签到完成后才检查到期，确保积分已领取。
+        # 这里直接取凭据而不走 load_credentials，避免重复打印凭据来源日志。
+        creds = _creds_from_env() if IS_CI else (_creds_from_config() or _creds_from_local_auth())
+        if creds:
+            token_expiry_guard(creds)
+    sys.exit(0 if ok else 1)
